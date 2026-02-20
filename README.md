@@ -14,6 +14,10 @@ Generate Obsidian Canvas network maps from Nmap scan results.
 - no connecting lines/edges in the canvas output.
 
 This makes dual-homed or multi-address hosts easy to spot because they appear in multiple subnet columns.
+- one node per subnet,
+- edges from host nodes to subnet nodes labeled with host IP addresses.
+
+This makes dual-homed or multi-address hosts easy to spot because they connect to multiple subnet nodes.
 
 ## Usage
 

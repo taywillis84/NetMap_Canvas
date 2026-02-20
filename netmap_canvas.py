@@ -8,6 +8,10 @@ Design:
 - One host node per discovered host per attached subnet column.
 - Subnets are laid out horizontally as columns.
 - Hosts are listed vertically beneath each subnet and no edges are drawn.
+- One host node per discovered host.
+- One subnet node per detected IPv4 subnet (configurable prefix length).
+- Host-to-subnet edges for each interface address, so dual-homed / multi-address
+  systems visibly connect multiple subnet nodes.
 """
 
 from __future__ import annotations
@@ -58,6 +62,7 @@ def parse_host_entries(xml_path: Path) -> list[dict[str, object]]:
 
     Hosts without any open ports are excluded.
     """
+    """Extract host entries from one Nmap XML file."""
     tree = ET.parse(xml_path)
     root = tree.getroot()
     hosts: list[dict[str, object]] = []
@@ -235,6 +240,100 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int) -> dict[str, 
             )
 
     return {"nodes": nodes, "edges": []}
+    """Create Obsidian Canvas JSON from aggregated host records."""
+    nodes: list[dict[str, object]] = []
+    edges: list[dict[str, object]] = []
+
+    host_node_ids: dict[str, str] = {}
+    subnet_node_ids: dict[str, str] = {}
+
+    subnets: set[str] = set()
+    for record in hosts.values():
+        for ip in record.ipv4_addrs:
+            try:
+                network = ipaddress.ip_network(f"{ip}/{subnet_prefix}", strict=False)
+            except ValueError:
+                continue
+            subnets.add(str(network))
+
+    sorted_subnets = sorted(subnets, key=lambda n: (ipaddress.ip_network(n).network_address, n))
+
+    host_x = 60
+    host_y_start = 60
+    host_y_step = 180
+
+    for i, host_key in enumerate(sorted(hosts.keys())):
+        record = hosts[host_key]
+        node_id = str(uuid.uuid4())
+        host_node_ids[host_key] = node_id
+
+        subtitle_parts = []
+        if record.ipv4_addrs:
+            subtitle_parts.append("IPv4: " + ", ".join(sorted(record.ipv4_addrs)))
+        if record.ipv6_addrs:
+            subtitle_parts.append("IPv6: " + ", ".join(sorted(record.ipv6_addrs)))
+        if record.mac_addrs:
+            subtitle_parts.append("MAC: " + ", ".join(sorted(record.mac_addrs)))
+
+        text = record.display_name
+        if subtitle_parts:
+            text += "\n" + "\n".join(subtitle_parts)
+
+        nodes.append(
+            {
+                "id": node_id,
+                "type": "text",
+                "x": host_x,
+                "y": host_y_start + i * host_y_step,
+                "width": 380,
+                "height": 130,
+                "text": text,
+            }
+        )
+
+    subnet_x = 600
+    subnet_y_start = 100
+    subnet_y_step = 160
+
+    for i, subnet in enumerate(sorted_subnets):
+        node_id = str(uuid.uuid4())
+        subnet_node_ids[subnet] = node_id
+        nodes.append(
+            {
+                "id": node_id,
+                "type": "text",
+                "x": subnet_x,
+                "y": subnet_y_start + i * subnet_y_step,
+                "width": 260,
+                "height": 90,
+                "text": f"Subnet\n{subnet}",
+            }
+        )
+
+    for host_key, record in hosts.items():
+        host_node_id = host_node_ids[host_key]
+        for ip in sorted(record.ipv4_addrs):
+            try:
+                subnet = str(ipaddress.ip_network(f"{ip}/{subnet_prefix}", strict=False))
+            except ValueError:
+                continue
+
+            subnet_node_id = subnet_node_ids.get(subnet)
+            if not subnet_node_id:
+                continue
+
+            edges.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "fromNode": host_node_id,
+                    "fromSide": "right",
+                    "toNode": subnet_node_id,
+                    "toSide": "left",
+                    "label": ip,
+                }
+            )
+
+    return {"nodes": nodes, "edges": edges}
 
 
 def main() -> int:
