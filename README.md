@@ -32,7 +32,7 @@ python3 netmap_canvas.py /path/to/scans --kali-ip 192.168.56.10 -o network_map.c
 ```
 
 
-`--kali-ip` is required. It adds a **Kali Attack Box** host node (colored red) into the leftmost subnet column.
+`--kali-ip` is required. It adds a **Kali Attack Box** host node (colored red) in its own dedicated leftmost column, separate from subnet columns.
 
 ## Expected input
 
