@@ -184,6 +184,26 @@ def aggregate_hosts(xml_files: list[Path]) -> dict[str, HostRecord]:
     return hosts
 
 
+def estimate_text_node_size(
+    lines: list[str],
+    *,
+    min_width: int,
+    min_height: int,
+    max_width: int = 980,
+    horizontal_padding: int = 80,
+    vertical_padding: int = 44,
+    char_width: int = 7,
+    line_height: int = 24,
+) -> tuple[int, int]:
+    """Estimate canvas node size from text line count and line length."""
+    non_empty_lines = lines or [""]
+    max_line_len = max((len(line) for line in non_empty_lines), default=0)
+
+    width = max(min_width, min(max_width, max_line_len * char_width + horizontal_padding))
+    height = max(min_height, len(non_empty_lines) * line_height + vertical_padding)
+    return width, height
+
+
 def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str) -> dict[str, object]:
     """Create Obsidian Canvas JSON from aggregated host records.
 
@@ -214,6 +234,9 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
     host_y_step = 210
 
     # Draw a dedicated leftmost column for the Kali attack box.
+    kali_header_text = "Attack Infrastructure\nKali Attack Box"
+    kali_header_lines = kali_header_text.splitlines()
+    kali_header_width, kali_header_height = estimate_text_node_size(kali_header_lines, min_width=460, min_height=110)
     nodes.append(
         {
             "id": str(uuid.uuid4()),
@@ -228,6 +251,15 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
     )
 
     kali_subnet = str(ipaddress.ip_network(f"{kali_ip}/{subnet_prefix}", strict=False))
+    kali_host_lines = [
+        kali_record.hostname or "Kali Attack Box",
+        f"Subnet IPs: {kali_ip}",
+        f"All IPv4: {kali_ip}",
+        f"Subnet: {kali_subnet}",
+    ]
+    kali_host_text = "\n".join(kali_host_lines)
+    kali_host_width, kali_host_height = estimate_text_node_size(kali_host_lines, min_width=460, min_height=180)
+    kali_host_y = header_y + kali_header_height + header_to_host_gap
     nodes.append(
         {
             "id": str(uuid.uuid4()),
@@ -248,11 +280,21 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
         }
     )
 
-    for col_idx, subnet in enumerate(sorted_subnets):
-        col_x = col_x_start + (col_idx + 1) * col_x_step
+    next_col_x = col_x_start + max(kali_header_width, kali_host_width) + col_gap
+
+    for subnet in sorted_subnets:
+        col_x = next_col_x
 
         subnet_hosts = subnet_to_hosts[subnet]
         unique_host_keys = {record.key for record, _ in subnet_hosts}
+
+        subnet_header_text = f"Subnet\n{subnet}\nHosts: {len(unique_host_keys)}"
+        subnet_header_lines = subnet_header_text.splitlines()
+        subnet_header_width, subnet_header_height = estimate_text_node_size(
+            subnet_header_lines,
+            min_width=460,
+            min_height=110,
+        )
 
         nodes.append(
             {
@@ -273,7 +315,10 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
             by_host.setdefault(record.key, []).append(ip)
             host_records[record.key] = record
 
-        for row_idx, host_key in enumerate(sorted(by_host.keys())):
+        column_max_width = subnet_header_width
+        next_host_y = header_y + subnet_header_height + header_to_host_gap
+
+        for host_key in sorted(by_host.keys()):
             record = host_records[host_key]
             ips_in_subnet = sorted(set(by_host[host_key]))
 
@@ -292,6 +337,10 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
             if record.open_ports:
                 subtitle_parts.append("Open Ports:\n" + "\n".join(sorted(record.open_ports)))
 
+            host_text = "\n".join(subtitle_parts)
+            host_text_lines = host_text.splitlines()
+            host_width, host_height = estimate_text_node_size(host_text_lines, min_width=460, min_height=180)
+            column_max_width = max(column_max_width, host_width)
             nodes.append(
                 {
                     "id": str(uuid.uuid4()),
@@ -304,6 +353,9 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
                     "text": "\n".join(subtitle_parts),
                 }
             )
+            next_host_y += host_height + host_row_gap
+
+        next_col_x += column_max_width + col_gap
 
     return {"nodes": nodes, "edges": []}
 
