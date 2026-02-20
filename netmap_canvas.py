@@ -32,6 +32,7 @@ class HostRecord:
 
 
 KALI_ATTACK_BOX_KEY = "special:kali-attack-box"
+DEFAULT_HEADER_TO_HOST_GAP = 40
 
 
 def discover_nmap_xml_files(scan_root: Path) -> list[Path]:
@@ -95,7 +96,20 @@ def parse_host_entries(xml_path: Path) -> list[dict[str, object]]:
             protocol = port.get("protocol") or "tcp"
             if not portid:
                 continue
-            open_ports.append(f"{portid}/{protocol}")
+
+            service_label = ""
+            service = port.find("service")
+            if service is not None:
+                service_name = (service.get("name") or "").strip()
+                service_product = (service.get("product") or "").strip()
+                service_version = (service.get("version") or "").strip()
+                service_extra = (service.get("extrainfo") or "").strip()
+
+                service_parts = [part for part in [service_name, service_product, service_version, service_extra] if part]
+                if service_parts:
+                    service_label = f" ({' '.join(service_parts)})"
+
+            open_ports.append(f"{portid}/{protocol}{service_label}")
 
         if not open_ports:
             continue
@@ -171,6 +185,26 @@ def aggregate_hosts(xml_files: list[Path]) -> dict[str, HostRecord]:
     return hosts
 
 
+def estimate_text_node_size(
+    lines: list[str],
+    *,
+    min_width: int,
+    min_height: int,
+    max_width: int = 980,
+    horizontal_padding: int = 80,
+    vertical_padding: int = 44,
+    char_width: int = 7,
+    line_height: int = 24,
+) -> tuple[int, int]:
+    """Estimate canvas node size from text line count and line length."""
+    non_empty_lines = lines or [""]
+    max_line_len = max((len(line) for line in non_empty_lines), default=0)
+
+    width = max(min_width, min(max_width, max_line_len * char_width + horizontal_padding))
+    height = max(min_height, len(non_empty_lines) * line_height + vertical_padding)
+    return width, height
+
+
 def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str) -> dict[str, object]:
     """Create Obsidian Canvas JSON from aggregated host records.
 
@@ -195,51 +229,66 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
     kali_record = hosts[KALI_ATTACK_BOX_KEY]
 
     col_x_start = 60
-    col_x_step = 460
     header_y = 40
-    host_y_start = 150
-    host_y_step = 170
+    col_gap = 140
+    header_to_host_gap = DEFAULT_HEADER_TO_HOST_GAP
+    host_row_gap = 30
 
     # Draw a dedicated leftmost column for the Kali attack box.
+    kali_header_text = "Attack Infrastructure\nKali Attack Box"
+    kali_header_lines = kali_header_text.splitlines()
+    kali_header_width, kali_header_height = estimate_text_node_size(kali_header_lines, min_width=460, min_height=110)
     nodes.append(
         {
             "id": str(uuid.uuid4()),
             "type": "text",
             "x": col_x_start,
             "y": header_y,
-            "width": 400,
-            "height": 90,
-            "color": 1,
-            "text": "Attack Infrastructure\nKali Attack Box",
+            "width": kali_header_width,
+            "height": kali_header_height,
+            "color": "1",
+            "text": kali_header_text,
         }
     )
 
     kali_subnet = str(ipaddress.ip_network(f"{kali_ip}/{subnet_prefix}", strict=False))
+    kali_host_lines = [
+        kali_record.hostname or "Kali Attack Box",
+        f"Subnet IPs: {kali_ip}",
+        f"All IPv4: {kali_ip}",
+        f"Subnet: {kali_subnet}",
+    ]
+    kali_host_text = "\n".join(kali_host_lines)
+    kali_host_width, kali_host_height = estimate_text_node_size(kali_host_lines, min_width=460, min_height=180)
+    kali_host_y = header_y + kali_header_height + header_to_host_gap
     nodes.append(
         {
             "id": str(uuid.uuid4()),
             "type": "text",
             "x": col_x_start,
-            "y": host_y_start,
-            "width": 400,
-            "height": 140,
-            "color": 1,
-            "text": "\n".join(
-                [
-                    kali_record.hostname or "Kali Attack Box",
-                    f"Subnet IPs: {kali_ip}",
-                    f"All IPv4: {kali_ip}",
-                    f"Subnet: {kali_subnet}",
-                ]
-            ),
+            "y": kali_host_y,
+            "width": kali_host_width,
+            "height": kali_host_height,
+            "color": "1",
+            "text": kali_host_text,
         }
     )
 
-    for col_idx, subnet in enumerate(sorted_subnets):
-        col_x = col_x_start + (col_idx + 1) * col_x_step
+    next_col_x = col_x_start + max(kali_header_width, kali_host_width) + col_gap
+
+    for subnet in sorted_subnets:
+        col_x = next_col_x
 
         subnet_hosts = subnet_to_hosts[subnet]
         unique_host_keys = {record.key for record, _ in subnet_hosts}
+
+        subnet_header_text = f"Subnet\n{subnet}\nHosts: {len(unique_host_keys)}"
+        subnet_header_lines = subnet_header_text.splitlines()
+        subnet_header_width, subnet_header_height = estimate_text_node_size(
+            subnet_header_lines,
+            min_width=460,
+            min_height=110,
+        )
 
         nodes.append(
             {
@@ -247,11 +296,10 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
                 "type": "text",
                 "x": col_x,
                 "y": header_y,
-                "width": 400,
-                "height": 90,
+                "width": subnet_header_width,
+                "height": subnet_header_height,
                 "color": "6",
-                "color": 6,
-                "text": f"Subnet\n{subnet}\nHosts: {len(unique_host_keys)}",
+                "text": subnet_header_text,
             }
         )
 
@@ -261,7 +309,10 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
             by_host.setdefault(record.key, []).append(ip)
             host_records[record.key] = record
 
-        for row_idx, host_key in enumerate(sorted(by_host.keys())):
+        column_max_width = subnet_header_width
+        next_host_y = header_y + subnet_header_height + header_to_host_gap
+
+        for host_key in sorted(by_host.keys()):
             record = host_records[host_key]
             ips_in_subnet = sorted(set(by_host[host_key]))
 
@@ -278,21 +329,27 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
             if record.mac_addrs:
                 subtitle_parts.append("MAC: " + ", ".join(sorted(record.mac_addrs)))
             if record.open_ports:
-                subtitle_parts.append("Open Ports: " + ", ".join(sorted(record.open_ports)))
+                subtitle_parts.append("Open Ports:\n" + "\n".join(sorted(record.open_ports)))
 
+            host_text = "\n".join(subtitle_parts)
+            host_text_lines = host_text.splitlines()
+            host_width, host_height = estimate_text_node_size(host_text_lines, min_width=460, min_height=180)
+            column_max_width = max(column_max_width, host_width)
             nodes.append(
                 {
                     "id": str(uuid.uuid4()),
                     "type": "text",
                     "x": col_x,
-                    "y": host_y_start + row_idx * host_y_step,
-                    "width": 400,
-                    "height": 140,
+                    "y": next_host_y,
+                    "width": host_width,
+                    "height": host_height,
                     "color": "1" if record.is_kali_attack_box else "4",
-                    "color": 4,
-                    "text": "\n".join(subtitle_parts),
+                    "text": host_text,
                 }
             )
+            next_host_y += host_height + host_row_gap
+
+        next_col_x += column_max_width + col_gap
 
     return {"nodes": nodes, "edges": []}
 
