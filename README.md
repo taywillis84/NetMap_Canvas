@@ -9,6 +9,11 @@ Generate Obsidian Canvas network maps from Nmap scan results.
 > Only hosts with at least one **open port** in the scan are included as nodes.
 
 - one node per host,
+- one subnet header node per subnet column (subnets are separated horizontally),
+- host nodes listed under their attached subnet column(s),
+- no connecting lines/edges in the canvas output.
+
+This makes dual-homed or multi-address hosts easy to spot because they appear in multiple subnet columns.
 - one node per subnet,
 - edges from host nodes to subnet nodes labeled with host IP addresses.
 

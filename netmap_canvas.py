@@ -5,6 +5,9 @@ The script walks subdirectories under an input directory, discovers Nmap XML fil
 extracts host/interface information, and emits a Canvas JSON file.
 
 Design:
+- One host node per discovered host per attached subnet column.
+- Subnets are laid out horizontally as columns.
+- Hosts are listed vertically beneath each subnet and no edges are drawn.
 - One host node per discovered host.
 - One subnet node per detected IPv4 subnet (configurable prefix length).
 - Host-to-subnet edges for each interface address, so dual-homed / multi-address
@@ -163,6 +166,80 @@ def aggregate_hosts(xml_files: list[Path]) -> dict[str, HostRecord]:
 
 
 def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int) -> dict[str, object]:
+    """Create Obsidian Canvas JSON from aggregated host records.
+
+    The map is column-oriented by subnet and intentionally contains no edges.
+    """
+    nodes: list[dict[str, object]] = []
+
+    subnet_to_hosts: dict[str, list[tuple[HostRecord, str]]] = {}
+
+    for record in hosts.values():
+        for ip in sorted(record.ipv4_addrs):
+            try:
+                subnet = str(ipaddress.ip_network(f"{ip}/{subnet_prefix}", strict=False))
+            except ValueError:
+                continue
+            subnet_to_hosts.setdefault(subnet, []).append((record, ip))
+
+    sorted_subnets = sorted(subnet_to_hosts.keys(), key=lambda n: (ipaddress.ip_network(n).network_address, n))
+
+    col_x_start = 60
+    col_x_step = 460
+    header_y = 40
+    host_y_start = 150
+    host_y_step = 150
+
+    for col_idx, subnet in enumerate(sorted_subnets):
+        col_x = col_x_start + col_idx * col_x_step
+
+        subnet_hosts = subnet_to_hosts[subnet]
+        unique_host_keys = {record.key for record, _ in subnet_hosts}
+
+        nodes.append(
+            {
+                "id": str(uuid.uuid4()),
+                "type": "text",
+                "x": col_x,
+                "y": header_y,
+                "width": 400,
+                "height": 90,
+                "text": f"Subnet\n{subnet}\nHosts: {len(unique_host_keys)}",
+            }
+        )
+
+        by_host: dict[str, list[str]] = {}
+        host_records: dict[str, HostRecord] = {}
+        for record, ip in subnet_hosts:
+            by_host.setdefault(record.key, []).append(ip)
+            host_records[record.key] = record
+
+        for row_idx, host_key in enumerate(sorted(by_host.keys())):
+            record = host_records[host_key]
+            ips_in_subnet = sorted(set(by_host[host_key]))
+
+            subtitle_parts = [f"Subnet IPs: {', '.join(ips_in_subnet)}"]
+            if record.ipv4_addrs:
+                all_ipv4 = ", ".join(sorted(record.ipv4_addrs))
+                subtitle_parts.append(f"All IPv4: {all_ipv4}")
+            if record.ipv6_addrs:
+                subtitle_parts.append("IPv6: " + ", ".join(sorted(record.ipv6_addrs)))
+            if record.mac_addrs:
+                subtitle_parts.append("MAC: " + ", ".join(sorted(record.mac_addrs)))
+
+            nodes.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "type": "text",
+                    "x": col_x,
+                    "y": host_y_start + row_idx * host_y_step,
+                    "width": 400,
+                    "height": 120,
+                    "text": record.display_name + "\n" + "\n".join(subtitle_parts),
+                }
+            )
+
+    return {"nodes": nodes, "edges": []}
     """Create Obsidian Canvas JSON from aggregated host records."""
     nodes: list[dict[str, object]] = []
     edges: list[dict[str, object]] = []
