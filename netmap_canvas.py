@@ -208,7 +208,7 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
     kali_record = hosts[KALI_ATTACK_BOX_KEY]
 
     col_x_start = 60
-    col_x_step = 520
+    col_x_step = 620
     header_y = 40
     host_y_start = 170
     host_y_step = 210
@@ -290,7 +290,7 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
             if record.mac_addrs:
                 subtitle_parts.append("MAC: " + ", ".join(sorted(record.mac_addrs)))
             if record.open_ports:
-                subtitle_parts.append("Open Ports: " + ", ".join(sorted(record.open_ports)))
+                subtitle_parts.append("Open Ports:\n" + "\n".join(sorted(record.open_ports)))
 
             nodes.append(
                 {
