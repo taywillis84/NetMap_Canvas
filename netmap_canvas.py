@@ -32,6 +32,7 @@ class HostRecord:
 
 
 KALI_ATTACK_BOX_KEY = "special:kali-attack-box"
+DEFAULT_HEADER_TO_HOST_GAP = 40
 
 
 def discover_nmap_xml_files(scan_root: Path) -> list[Path]:
