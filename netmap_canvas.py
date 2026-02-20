@@ -249,6 +249,7 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
                 "y": header_y,
                 "width": 400,
                 "height": 90,
+                "color": "6",
                 "color": 6,
                 "text": f"Subnet\n{subnet}\nHosts: {len(unique_host_keys)}",
             }
@@ -287,6 +288,7 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
                     "y": host_y_start + row_idx * host_y_step,
                     "width": 400,
                     "height": 140,
+                    "color": "1" if record.is_kali_attack_box else "4",
                     "color": 4,
                     "text": "\n".join(subtitle_parts),
                 }
