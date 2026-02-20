@@ -232,6 +232,10 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
     header_y = 40
     host_y_start = 190
     host_row_gap = 30
+    col_x_step = 620
+    header_y = 40
+    host_y_start = 170
+    host_y_step = 210
 
     # Draw a dedicated leftmost column for the Kali attack box.
     kali_header_text = "Attack Infrastructure\nKali Attack Box"
@@ -247,6 +251,10 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
             "height": kali_header_height,
             "color": "1",
             "text": kali_header_text,
+            "width": 460,
+            "height": 110,
+            "color": "1",
+            "text": "Attack Infrastructure\nKali Attack Box",
         }
     )
 
@@ -269,6 +277,17 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
             "height": kali_host_height,
             "color": "1",
             "text": kali_host_text,
+            "width": 460,
+            "height": 180,
+            "color": "1",
+            "text": "\n".join(
+                [
+                    kali_record.hostname or "Kali Attack Box",
+                    f"Subnet IPs: {kali_ip}",
+                    f"All IPv4: {kali_ip}",
+                    f"Subnet: {kali_subnet}",
+                ]
+            ),
         }
     )
 
@@ -295,6 +314,10 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
                 "height": subnet_header_height,
                 "color": "6",
                 "text": subnet_header_text,
+                "width": 460,
+                "height": 110,
+                "color": "6",
+                "text": f"Subnet\n{subnet}\nHosts: {len(unique_host_keys)}",
             }
         )
 
@@ -337,6 +360,11 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
                     "height": host_height,
                     "color": "1" if record.is_kali_attack_box else "4",
                     "text": host_text,
+                    "y": host_y_start + row_idx * host_y_step,
+                    "width": 460,
+                    "height": 180,
+                    "color": "1" if record.is_kali_attack_box else "4",
+                    "text": "\n".join(subtitle_parts),
                 }
             )
             next_host_y += host_height + host_row_gap
