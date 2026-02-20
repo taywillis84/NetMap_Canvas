@@ -28,6 +28,10 @@ class HostRecord:
     source_files: set[str] = field(default_factory=set)
     hostname: str | None = None
     open_ports: set[str] = field(default_factory=set)
+    is_kali_attack_box: bool = False
+
+
+KALI_ATTACK_BOX_KEY = "special:kali-attack-box"
 
 
 def discover_nmap_xml_files(scan_root: Path) -> list[Path]:
@@ -167,7 +171,7 @@ def aggregate_hosts(xml_files: list[Path]) -> dict[str, HostRecord]:
     return hosts
 
 
-def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int) -> dict[str, object]:
+def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str) -> dict[str, object]:
     """Create Obsidian Canvas JSON from aggregated host records.
 
     The map is column-oriented by subnet and intentionally contains no edges.
@@ -177,12 +181,23 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int) -> dict[str, 
     subnet_to_hosts: dict[str, list[tuple[HostRecord, str]]] = {}
 
     for record in hosts.values():
+        if record.is_kali_attack_box:
+            continue
         for ip in sorted(record.ipv4_addrs):
             try:
                 subnet = str(ipaddress.ip_network(f"{ip}/{subnet_prefix}", strict=False))
             except ValueError:
                 continue
             subnet_to_hosts.setdefault(subnet, []).append((record, ip))
+
+    sorted_subnets = sorted(subnet_to_hosts.keys(), key=lambda n: (ipaddress.ip_network(n).network_address, n))
+
+    kali_subnet = str(ipaddress.ip_network(f"{kali_ip}/{subnet_prefix}", strict=False))
+    kali_record = hosts[KALI_ATTACK_BOX_KEY]
+    if sorted_subnets:
+        subnet_to_hosts[sorted_subnets[0]].append((kali_record, kali_ip))
+    else:
+        subnet_to_hosts[kali_subnet] = [(kali_record, kali_ip)]
 
     sorted_subnets = sorted(subnet_to_hosts.keys(), key=lambda n: (ipaddress.ip_network(n).network_address, n))
 
@@ -244,7 +259,7 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int) -> dict[str, 
                     "y": host_y_start + row_idx * host_y_step,
                     "width": 400,
                     "height": 140,
-                    "color": "green",
+                    "color": "red" if record.is_kali_attack_box else "green",
                     "text": "\n".join(subtitle_parts),
                 }
             )
@@ -268,6 +283,11 @@ def main() -> int:
         help="Output Obsidian Canvas file path (default: network_map.canvas)",
     )
     parser.add_argument(
+        "--kali-ip",
+        required=True,
+        help="Kali Linux IPv4 address to include in the leftmost column as a red node.",
+    )
+    parser.add_argument(
         "--subnet-prefix",
         type=int,
         default=24,
@@ -282,12 +302,25 @@ def main() -> int:
     if not (0 <= args.subnet_prefix <= 32):
         raise SystemExit("--subnet-prefix must be between 0 and 32")
 
+    try:
+        ipaddress.IPv4Address(args.kali_ip)
+    except ipaddress.AddressValueError as exc:
+        raise SystemExit(f"Invalid --kali-ip value: {args.kali_ip}") from exc
+
     xml_files = discover_nmap_xml_files(args.scan_dir)
     if not xml_files:
         raise SystemExit(f"No Nmap XML files found under: {args.scan_dir}")
 
     hosts = aggregate_hosts(xml_files)
-    canvas_data = build_canvas(hosts, args.subnet_prefix)
+    hosts[KALI_ATTACK_BOX_KEY] = HostRecord(
+        key=KALI_ATTACK_BOX_KEY,
+        display_name=args.kali_ip,
+        ipv4_addrs={args.kali_ip},
+        hostname="Kali Attack Box",
+        is_kali_attack_box=True,
+    )
+
+    canvas_data = build_canvas(hosts, args.subnet_prefix, args.kali_ip)
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(canvas_data, indent=2), encoding="utf-8")
