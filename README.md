@@ -6,6 +6,8 @@ Generate Obsidian Canvas network maps from Nmap scan results.
 
 `netmap_canvas.py` walks a directory tree, finds Nmap XML files, and builds a `.canvas` file with:
 
+> Only hosts with at least one **open port** in the scan are included as nodes.
+
 - one node per host,
 - one node per subnet,
 - edges from host nodes to subnet nodes labeled with host IP addresses.

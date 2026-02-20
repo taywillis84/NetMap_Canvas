@@ -55,6 +55,10 @@ def is_nmap_xml(path: Path) -> bool:
 
 
 def parse_host_entries(xml_path: Path) -> list[dict[str, object]]:
+    """Extract host entries from one Nmap XML file.
+
+    Hosts without any open ports are excluded.
+    """
     """Extract host entries from one Nmap XML file."""
     tree = ET.parse(xml_path)
     root = tree.getroot()
@@ -81,6 +85,13 @@ def parse_host_entries(xml_path: Path) -> list[dict[str, object]]:
                 ipv6_addrs.append(addr)
             elif addrtype == "mac":
                 mac_addrs.append(addr)
+
+        has_open_port = any(
+            port_state is not None and port_state.get("state") == "open"
+            for port_state in (port.find("state") for port in host.findall("ports/port"))
+        )
+        if not has_open_port:
+            continue
 
         hostname = None
         hostnames = host.find("hostnames")
