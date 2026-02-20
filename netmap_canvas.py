@@ -3,15 +3,6 @@
 
 The script walks subdirectories under an input directory, discovers Nmap XML files,
 extracts host/interface information, and emits a Canvas JSON file.
-
-Design:
-- One host node per discovered host per attached subnet column.
-- Subnets are laid out horizontally as columns.
-- Hosts are listed vertically beneath each subnet and no edges are drawn.
-- One host node per discovered host.
-- One subnet node per detected IPv4 subnet (configurable prefix length).
-- Host-to-subnet edges for each interface address, so dual-homed / multi-address
-  systems visibly connect multiple subnet nodes.
 """
 
 from __future__ import annotations
@@ -35,6 +26,8 @@ class HostRecord:
     ipv6_addrs: set[str] = field(default_factory=set)
     mac_addrs: set[str] = field(default_factory=set)
     source_files: set[str] = field(default_factory=set)
+    hostname: str | None = None
+    open_ports: set[str] = field(default_factory=set)
 
 
 def discover_nmap_xml_files(scan_root: Path) -> list[Path]:
@@ -62,7 +55,6 @@ def parse_host_entries(xml_path: Path) -> list[dict[str, object]]:
 
     Hosts without any open ports are excluded.
     """
-    """Extract host entries from one Nmap XML file."""
     tree = ET.parse(xml_path)
     root = tree.getroot()
     hosts: list[dict[str, object]] = []
@@ -89,11 +81,19 @@ def parse_host_entries(xml_path: Path) -> list[dict[str, object]]:
             elif addrtype == "mac":
                 mac_addrs.append(addr)
 
-        has_open_port = any(
-            port_state is not None and port_state.get("state") == "open"
-            for port_state in (port.find("state") for port in host.findall("ports/port"))
-        )
-        if not has_open_port:
+        open_ports: list[str] = []
+        for port in host.findall("ports/port"):
+            state = port.find("state")
+            if state is None or state.get("state") != "open":
+                continue
+
+            portid = port.get("portid")
+            protocol = port.get("protocol") or "tcp"
+            if not portid:
+                continue
+            open_ports.append(f"{portid}/{protocol}")
+
+        if not open_ports:
             continue
 
         hostname = None
@@ -109,6 +109,7 @@ def parse_host_entries(xml_path: Path) -> list[dict[str, object]]:
                 "ipv4": ipv4_addrs,
                 "ipv6": ipv6_addrs,
                 "mac": mac_addrs,
+                "open_ports": open_ports,
             }
         )
 
@@ -146,20 +147,21 @@ def aggregate_hosts(xml_files: list[Path]) -> dict[str, HostRecord]:
             )
 
             if key not in hosts:
-                display_name = (
-                    hostname
-                    if isinstance(hostname, str) and hostname
-                    else (sorted(ipv4_addrs)[0] if isinstance(ipv4_addrs, list) and ipv4_addrs else key)
-                )
+                display_name = sorted(ipv4_addrs)[0] if isinstance(ipv4_addrs, list) and ipv4_addrs else key
                 hosts[key] = HostRecord(key=key, display_name=display_name)
 
             record = hosts[key]
+            if isinstance(hostname, str) and hostname and not record.hostname:
+                record.hostname = hostname
             if isinstance(ipv4_addrs, list):
                 record.ipv4_addrs.update(ipv4_addrs)
             if isinstance(ipv6_addrs, list):
                 record.ipv6_addrs.update(ipv6_addrs)
             if isinstance(mac_addrs, list):
                 record.mac_addrs.update([m.lower() for m in mac_addrs])
+            open_ports = host.get("open_ports")
+            if isinstance(open_ports, list):
+                record.open_ports.update([str(p) for p in open_ports])
             record.source_files.add(str(xml_file))
 
     return hosts
@@ -188,7 +190,7 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int) -> dict[str, 
     col_x_step = 460
     header_y = 40
     host_y_start = 150
-    host_y_step = 150
+    host_y_step = 170
 
     for col_idx, subnet in enumerate(sorted_subnets):
         col_x = col_x_start + col_idx * col_x_step
@@ -204,6 +206,7 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int) -> dict[str, 
                 "y": header_y,
                 "width": 400,
                 "height": 90,
+                "color": "purple",
                 "text": f"Subnet\n{subnet}\nHosts: {len(unique_host_keys)}",
             }
         )
@@ -218,7 +221,11 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int) -> dict[str, 
             record = host_records[host_key]
             ips_in_subnet = sorted(set(by_host[host_key]))
 
-            subtitle_parts = [f"Subnet IPs: {', '.join(ips_in_subnet)}"]
+            subtitle_parts: list[str] = []
+            if record.hostname:
+                subtitle_parts.append(record.hostname)
+
+            subtitle_parts.append(f"Subnet IPs: {', '.join(ips_in_subnet)}")
             if record.ipv4_addrs:
                 all_ipv4 = ", ".join(sorted(record.ipv4_addrs))
                 subtitle_parts.append(f"All IPv4: {all_ipv4}")
@@ -226,6 +233,8 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int) -> dict[str, 
                 subtitle_parts.append("IPv6: " + ", ".join(sorted(record.ipv6_addrs)))
             if record.mac_addrs:
                 subtitle_parts.append("MAC: " + ", ".join(sorted(record.mac_addrs)))
+            if record.open_ports:
+                subtitle_parts.append("Open Ports: " + ", ".join(sorted(record.open_ports)))
 
             nodes.append(
                 {
@@ -234,106 +243,13 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int) -> dict[str, 
                     "x": col_x,
                     "y": host_y_start + row_idx * host_y_step,
                     "width": 400,
-                    "height": 120,
-                    "text": record.display_name + "\n" + "\n".join(subtitle_parts),
+                    "height": 140,
+                    "color": "green",
+                    "text": "\n".join(subtitle_parts),
                 }
             )
 
     return {"nodes": nodes, "edges": []}
-    """Create Obsidian Canvas JSON from aggregated host records."""
-    nodes: list[dict[str, object]] = []
-    edges: list[dict[str, object]] = []
-
-    host_node_ids: dict[str, str] = {}
-    subnet_node_ids: dict[str, str] = {}
-
-    subnets: set[str] = set()
-    for record in hosts.values():
-        for ip in record.ipv4_addrs:
-            try:
-                network = ipaddress.ip_network(f"{ip}/{subnet_prefix}", strict=False)
-            except ValueError:
-                continue
-            subnets.add(str(network))
-
-    sorted_subnets = sorted(subnets, key=lambda n: (ipaddress.ip_network(n).network_address, n))
-
-    host_x = 60
-    host_y_start = 60
-    host_y_step = 180
-
-    for i, host_key in enumerate(sorted(hosts.keys())):
-        record = hosts[host_key]
-        node_id = str(uuid.uuid4())
-        host_node_ids[host_key] = node_id
-
-        subtitle_parts = []
-        if record.ipv4_addrs:
-            subtitle_parts.append("IPv4: " + ", ".join(sorted(record.ipv4_addrs)))
-        if record.ipv6_addrs:
-            subtitle_parts.append("IPv6: " + ", ".join(sorted(record.ipv6_addrs)))
-        if record.mac_addrs:
-            subtitle_parts.append("MAC: " + ", ".join(sorted(record.mac_addrs)))
-
-        text = record.display_name
-        if subtitle_parts:
-            text += "\n" + "\n".join(subtitle_parts)
-
-        nodes.append(
-            {
-                "id": node_id,
-                "type": "text",
-                "x": host_x,
-                "y": host_y_start + i * host_y_step,
-                "width": 380,
-                "height": 130,
-                "text": text,
-            }
-        )
-
-    subnet_x = 600
-    subnet_y_start = 100
-    subnet_y_step = 160
-
-    for i, subnet in enumerate(sorted_subnets):
-        node_id = str(uuid.uuid4())
-        subnet_node_ids[subnet] = node_id
-        nodes.append(
-            {
-                "id": node_id,
-                "type": "text",
-                "x": subnet_x,
-                "y": subnet_y_start + i * subnet_y_step,
-                "width": 260,
-                "height": 90,
-                "text": f"Subnet\n{subnet}",
-            }
-        )
-
-    for host_key, record in hosts.items():
-        host_node_id = host_node_ids[host_key]
-        for ip in sorted(record.ipv4_addrs):
-            try:
-                subnet = str(ipaddress.ip_network(f"{ip}/{subnet_prefix}", strict=False))
-            except ValueError:
-                continue
-
-            subnet_node_id = subnet_node_ids.get(subnet)
-            if not subnet_node_id:
-                continue
-
-            edges.append(
-                {
-                    "id": str(uuid.uuid4()),
-                    "fromNode": host_node_id,
-                    "fromSide": "right",
-                    "toNode": subnet_node_id,
-                    "toSide": "left",
-                    "label": ip,
-                }
-            )
-
-    return {"nodes": nodes, "edges": edges}
 
 
 def main() -> int:
