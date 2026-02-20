@@ -59,6 +59,7 @@ def parse_host_entries(xml_path: Path) -> list[dict[str, object]]:
 
     Hosts without any open ports are excluded.
     """
+    """Extract host entries from one Nmap XML file."""
     tree = ET.parse(xml_path)
     root = tree.getroot()
     hosts: list[dict[str, object]] = []
