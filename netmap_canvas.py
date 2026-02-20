@@ -192,14 +192,7 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
 
     sorted_subnets = sorted(subnet_to_hosts.keys(), key=lambda n: (ipaddress.ip_network(n).network_address, n))
 
-    kali_subnet = str(ipaddress.ip_network(f"{kali_ip}/{subnet_prefix}", strict=False))
     kali_record = hosts[KALI_ATTACK_BOX_KEY]
-    if sorted_subnets:
-        subnet_to_hosts[sorted_subnets[0]].append((kali_record, kali_ip))
-    else:
-        subnet_to_hosts[kali_subnet] = [(kali_record, kali_ip)]
-
-    sorted_subnets = sorted(subnet_to_hosts.keys(), key=lambda n: (ipaddress.ip_network(n).network_address, n))
 
     col_x_start = 60
     col_x_step = 460
@@ -207,8 +200,43 @@ def build_canvas(hosts: dict[str, HostRecord], subnet_prefix: int, kali_ip: str)
     host_y_start = 150
     host_y_step = 170
 
+    # Draw a dedicated leftmost column for the Kali attack box.
+    nodes.append(
+        {
+            "id": str(uuid.uuid4()),
+            "type": "text",
+            "x": col_x_start,
+            "y": header_y,
+            "width": 400,
+            "height": 90,
+            "color": 1,
+            "text": "Attack Infrastructure\nKali Attack Box",
+        }
+    )
+
+    kali_subnet = str(ipaddress.ip_network(f"{kali_ip}/{subnet_prefix}", strict=False))
+    nodes.append(
+        {
+            "id": str(uuid.uuid4()),
+            "type": "text",
+            "x": col_x_start,
+            "y": host_y_start,
+            "width": 400,
+            "height": 140,
+            "color": 1,
+            "text": "\n".join(
+                [
+                    kali_record.hostname or "Kali Attack Box",
+                    f"Subnet IPs: {kali_ip}",
+                    f"All IPv4: {kali_ip}",
+                    f"Subnet: {kali_subnet}",
+                ]
+            ),
+        }
+    )
+
     for col_idx, subnet in enumerate(sorted_subnets):
-        col_x = col_x_start + col_idx * col_x_step
+        col_x = col_x_start + (col_idx + 1) * col_x_step
 
         subnet_hosts = subnet_to_hosts[subnet]
         unique_host_keys = {record.key for record, _ in subnet_hosts}
