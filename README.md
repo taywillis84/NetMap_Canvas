@@ -22,14 +22,17 @@ This makes dual-homed or multi-address hosts easy to spot because they connect t
 ## Usage
 
 ```bash
-python3 netmap_canvas.py /path/to/scans -o network_map.canvas
+python3 netmap_canvas.py /path/to/scans --kali-ip 192.168.56.10 -o network_map.canvas
 ```
 
 Optional subnet grouping prefix (default `/24`):
 
 ```bash
-python3 netmap_canvas.py /path/to/scans -o network_map.canvas --subnet-prefix 24
+python3 netmap_canvas.py /path/to/scans --kali-ip 192.168.56.10 -o network_map.canvas --subnet-prefix 24
 ```
+
+
+`--kali-ip` is required. It adds a **Kali Attack Box** host node (colored red) into the leftmost subnet column.
 
 ## Expected input
 
